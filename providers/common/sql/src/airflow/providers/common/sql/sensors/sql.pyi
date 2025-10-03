@@ -70,3 +70,24 @@ class SqlSensor(BaseSensorOperator):
         **kwargs,
     ) -> None: ...
     def poke(self, context: Context) -> bool: ...
+
+
+class SQLValueCheckSensor(SqlSensor):
+    template_fields: Sequence[str]
+    ui_color: str
+    pass_value: Incomplete
+    tol: Incomplete
+    has_tolerance: Incomplete
+    def __init__(
+        self,
+        *,
+        conn_id: str,
+        sql: str,
+        pass_value: Any,
+        tolerance: Any | None = None,
+        parameters: Mapping[str, Any] | Sequence[Any] | None = None,
+        fail_on_empty: bool = False,
+        hook_params: Mapping[str, Any] | None = None,
+        **kwargs,
+    ) -> None: ...
+    def poke(self, context: Context) -> bool: ...

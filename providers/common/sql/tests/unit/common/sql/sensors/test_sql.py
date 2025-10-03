@@ -24,7 +24,7 @@ import pytest
 from airflow.exceptions import AirflowException
 from airflow.models.dag import DAG
 from airflow.providers.common.sql.hooks.sql import DbApiHook
-from airflow.providers.common.sql.sensors.sql import SqlSensor
+from airflow.providers.common.sql.sensors.sql import SQLValueCheckSensor, SqlSensor
 from airflow.utils.timezone import datetime
 
 DEFAULT_DATE = datetime(2015, 1, 1)
@@ -309,3 +309,105 @@ class TestSqlSensor:
         op.execute(context=mock.MagicMock())
 
         mock_get_records.assert_called_once_with("SELECT %(something)s", {"something": "1970-01-01"})
+
+
+class TestSQLValueCheckSensor:
+    @mock.patch("airflow.providers.common.sql.sensors.sql.BaseHook")
+    def test_sql_value_check_sensor_numeric(self, mock_base_hook):
+        sensor = SQLValueCheckSensor(
+            task_id="sql_value_check_numeric",
+            conn_id="postgres_default",
+            sql="SELECT value",
+            pass_value=1,
+        )
+
+        hook_instance = mock.MagicMock(spec=DbApiHook)
+        mock_base_hook.get_connection.return_value.get_hook.return_value = hook_instance
+
+        hook_instance.get_first.return_value = (0,)
+        assert not sensor.poke({})
+
+        hook_instance.get_first.return_value = (1,)
+        assert sensor.poke({})
+
+    @mock.patch("airflow.providers.common.sql.sensors.sql.BaseHook")
+    def test_sql_value_check_sensor_string(self, mock_base_hook):
+        sensor = SQLValueCheckSensor(
+            task_id="sql_value_check_string",
+            conn_id="postgres_default",
+            sql="SELECT status",
+            pass_value="ready",
+        )
+
+        hook_instance = mock.MagicMock(spec=DbApiHook)
+        mock_base_hook.get_connection.return_value.get_hook.return_value = hook_instance
+
+        hook_instance.get_first.return_value = ("pending",)
+        assert not sensor.poke({})
+
+        hook_instance.get_first.return_value = ("ready",)
+        assert sensor.poke({})
+
+    @mock.patch("airflow.providers.common.sql.sensors.sql.BaseHook")
+    def test_sql_value_check_sensor_fail_on_empty(self, mock_base_hook):
+        sensor = SQLValueCheckSensor(
+            task_id="sql_value_check_empty",
+            conn_id="postgres_default",
+            sql="SELECT value",
+            pass_value=1,
+        )
+
+        hook_instance = mock.MagicMock(spec=DbApiHook)
+        mock_base_hook.get_connection.return_value.get_hook.return_value = hook_instance
+
+        hook_instance.get_first.return_value = None
+        assert not sensor.poke({})
+
+        sensor_fail = SQLValueCheckSensor(
+            task_id="sql_value_check_empty_fail",
+            conn_id="postgres_default",
+            sql="SELECT value",
+            pass_value=1,
+            fail_on_empty=True,
+        )
+
+        hook_instance_fail = mock.MagicMock(spec=DbApiHook)
+        mock_base_hook.get_connection.return_value.get_hook.return_value = hook_instance_fail
+        hook_instance_fail.get_first.return_value = None
+        with pytest.raises(AirflowException):
+            sensor_fail.poke({})
+
+    @mock.patch("airflow.providers.common.sql.sensors.sql.BaseHook")
+    def test_sql_value_check_sensor_numeric_tolerance(self, mock_base_hook):
+        sensor = SQLValueCheckSensor(
+            task_id="sql_value_check_tolerance",
+            conn_id="postgres_default",
+            sql="SELECT value",
+            pass_value=100,
+            tolerance=0.1,
+        )
+
+        hook_instance = mock.MagicMock(spec=DbApiHook)
+        mock_base_hook.get_connection.return_value.get_hook.return_value = hook_instance
+
+        hook_instance.get_first.return_value = (89,)
+        assert not sensor.poke({})
+
+        hook_instance.get_first.return_value = (95,)
+        assert sensor.poke({})
+
+    @mock.patch("airflow.providers.common.sql.sensors.sql.BaseHook")
+    def test_sql_value_check_sensor_numeric_conversion_failure(self, mock_base_hook):
+        sensor = SQLValueCheckSensor(
+            task_id="sql_value_check_conversion_failure",
+            conn_id="postgres_default",
+            sql="SELECT value",
+            pass_value=1,
+        )
+
+        hook_instance = mock.MagicMock(spec=DbApiHook)
+        mock_base_hook.get_connection.return_value.get_hook.return_value = hook_instance
+        hook_instance.get_first.return_value = ("not-a-number",)
+
+        with pytest.raises(AirflowException):
+            sensor.poke({})
