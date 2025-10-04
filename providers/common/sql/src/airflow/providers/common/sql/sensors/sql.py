@@ -21,13 +21,18 @@ from operator import itemgetter
 from typing import TYPE_CHECKING, Any
 
 from airflow.exceptions import AirflowException
-from airflow.providers.common.sql.operators.sql import _convert_to_float_if_possible
 from airflow.providers.common.sql.hooks.sql import DbApiHook
 from airflow.providers.common.sql.version_compat import BaseHook, BaseSensorOperator
 
 if TYPE_CHECKING:
     from airflow.utils.context import Context
 
+
+def _convert_to_float_if_possible(value: Any) -> Any:
+    try:
+        return float(value)
+    except (ValueError, TypeError):
+        return value
 
 class SqlSensor(BaseSensorOperator):
     """
@@ -178,27 +183,13 @@ class SQLValueCheckSensor(SqlSensor):
             self.log.info("No rows returned yet for SQL value check.")
             return False
 
-        row = self._normalize_row(records)
-        if not row:
-            if self.fail_on_empty:
-                raise AirflowException("No rows returned, raising as per fail_on_empty flag")
-            self.log.info("Row returned no values for SQL value check. Waiting for data.")
-            return False
-
-        passed, error_msg = self._evaluate_row(row)
+        passed, error_msg = self._evaluate_row(records)
         if passed:
             self.log.info("SQL value check succeeded.")
             return True
 
         self.log.info("SQL value check not satisfied yet. %s", error_msg)
         return False
-
-    def _normalize_row(self, records: Any) -> list[Any]:
-        if isinstance(records, dict):
-            return list(records.values())
-        if isinstance(records, (list, tuple)):
-            return list(records)
-        return [records]
 
     def _evaluate_row(self, row: Sequence[Any]) -> tuple[bool, str]:
         pass_value_conv = _convert_to_float_if_possible(self.pass_value)

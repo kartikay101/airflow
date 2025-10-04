@@ -374,7 +374,7 @@ class TestSQLValueCheckSensor:
         hook_instance_fail = mock.MagicMock(spec=DbApiHook)
         mock_base_hook.get_connection.return_value.get_hook.return_value = hook_instance_fail
         hook_instance_fail.get_first.return_value = None
-        with pytest.raises(AirflowException):
+        with pytest.raises(AirflowException, match="No rows returned, raising as per fail_on_empty flag"):
             sensor_fail.poke({})
 
     @mock.patch("airflow.providers.common.sql.sensors.sql.BaseHook")
@@ -396,6 +396,19 @@ class TestSQLValueCheckSensor:
         hook_instance.get_first.return_value = (95,)
         assert sensor.poke({})
 
+    def test_sql_value_check_sensor_numeric_tolerance_error_message(self):
+        sensor = SQLValueCheckSensor(
+            task_id="sql_value_check_tolerance_error",
+            conn_id="postgres_default",
+            sql="SELECT value",
+            pass_value=100,
+            tolerance=0.1,
+        )
+
+        passed, error_msg = sensor._evaluate_row((50,))
+        assert not passed
+        assert "Tolerance:10.0%" in error_msg
+
     @mock.patch("airflow.providers.common.sql.sensors.sql.BaseHook")
     def test_sql_value_check_sensor_numeric_conversion_failure(self, mock_base_hook):
         sensor = SQLValueCheckSensor(
@@ -411,3 +424,32 @@ class TestSQLValueCheckSensor:
 
         with pytest.raises(AirflowException):
             sensor.poke({})
+
+    def test_sql_value_check_sensor_pass_value_template(self):
+        dag = DAG(TEST_DAG_ID, schedule=None, start_date=DEFAULT_DATE)
+        sensor = SQLValueCheckSensor(
+            task_id="sql_value_check_template",
+            dag=dag,
+            conn_id="postgres_default",
+            sql="SELECT value",
+            pass_value="{{ ds }}",
+        )
+
+        formatted_date = "2018-03-22"
+        sensor.render_template_fields({"ds": formatted_date})
+
+        assert sensor.pass_value == formatted_date
+
+    def test_sql_value_check_sensor_pass_value_float(self):
+        dag = DAG(TEST_DAG_ID, schedule=None, start_date=DEFAULT_DATE)
+        sensor = SQLValueCheckSensor(
+            task_id="sql_value_check_template_float",
+            dag=dag,
+            conn_id="postgres_default",
+            sql="SELECT value",
+            pass_value=4.0,
+        )
+
+        sensor.render_template_fields({})
+
+        assert sensor.pass_value == "4.0"
